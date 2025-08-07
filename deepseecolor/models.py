@@ -24,7 +24,7 @@ class BackscatterNet(nn.Module):
         if self.use_residual:
             beta_d_conv = self.relu(self.residual_conv(depth))
             residual_term = self.J_prime * torch.exp(-beta_d_conv)
-            Bc = Bc + residual_term  # 避免原地操作
+            Bc = Bc + residual_term  # avoid in-place operation
         backscatter = self.sigmoid(Bc)
 
         # if depth is zero'd out (i.e. bad estimate), do not use it for backscatter either
@@ -83,7 +83,7 @@ class BackscatterNetV2(nn.Module):
                 # beta_d_conv = self.relu(torch.nn.functional.conv2d(depth, self.residual_conv_params))
                 beta_d_conv = torch.clamp(torch.nn.functional.conv2d(depth, self.residual_conv_params), 0.0)
             residual_term = torch.sigmoid(self.J_prime) * torch.exp(-beta_d_conv)
-            Bc = Bc + residual_term  # 避免原地操作
+            Bc = Bc + residual_term  # avoid in-place operation
         backscatter = Bc
 
         # if depth is zero'd out (i.e. bad estimate), do not use it for backscatter either
@@ -250,13 +250,13 @@ class ImprovedBackscatterNetV2(nn.Module):
         self.do_sigmoid = do_sigmoid
         self.use_residual = use_residual
         
-        # 基本参数
+        # basic parameters
         if init_vals:
             self.backscatter_conv_params = nn.Parameter(torch.Tensor([0.95, 0.8, 0.8]).reshape(3, 1, 1, 1))
         else:
             self.backscatter_conv_params = nn.Parameter(torch.rand(3, 1, 1, 1))
             
-        # 边缘感知处理
+        # edge-aware processing
         self.edge_process = nn.Sequential(
             nn.Conv2d(2, 8, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -274,7 +274,7 @@ class ImprovedBackscatterNetV2(nn.Module):
         self.l2 = torch.nn.MSELoss()
         
     def forward(self, depth, rgb=None):
-        # 使用Sobel滤波器替代diff()
+        # use Sobel filters instead of diff()
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         pad = nn.ReplicationPad2d(1)
@@ -283,43 +283,43 @@ class ImprovedBackscatterNetV2(nn.Module):
         grad_y = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_y))
         combined_gradient = torch.cat([grad_x, grad_y], dim=1)
         
-        # 生成边缘感知因子
+        # generate edge-aware factor
         edge_aware_factor = self.edge_process(combined_gradient)
-        # 调整大小以匹配原始深度图
+        # resize to match original depth map
         edge_aware_factor = torch.nn.functional.interpolate(
             edge_aware_factor, size=(depth.shape[2], depth.shape[3]), mode='bilinear', align_corners=False
         )
         
-        # 基础散射系数计算
+        # basic scattering coefficient calculation
         if self.do_sigmoid:
             beta_b_conv = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.backscatter_conv_params))
         else:
             beta_b_conv = torch.nn.functional.conv2d(depth, self.backscatter_conv_params)
             
-        # 应用边缘感知因子调制散射系数 - 在边缘处减少散射
+        # apply edge-aware factor to modulate scattering coefficients - reduce scattering at edges
         beta_b_conv = beta_b_conv * (1.0 - 0.1 * edge_aware_factor)
-        beta_b_conv = torch.clamp(beta_b_conv, 0.01, None)  # 设置最小值0.01
+        beta_b_conv = torch.clamp(beta_b_conv, 0.01, None)  # set minimum value 0.01
         
-        # 计算散射
+        # calculate scattering
         Bc = torch.sigmoid(self.B_inf) * (1 - torch.exp(-beta_b_conv))
         
-        # 残差项处理
+        # residual term processing
         if self.use_residual:
             if self.do_sigmoid:
                 beta_d_conv = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.residual_conv_params))
             else:
                 beta_d_conv = torch.nn.functional.conv2d(depth, self.residual_conv_params)
             
-            # 应用置信度和边缘信息 - 避免原地操作
+            # apply confidence and edge info - avoid in-place operation
             modified_beta_d = beta_d_conv * (1.0 - 0.1 * edge_aware_factor)
             beta_d_clamped = torch.clamp(modified_beta_d, 0.0)
             
-            # 应用残差 - 避免原地操作
+            # apply residual - avoid in-place operation
             residual_term = torch.sigmoid(self.J_prime) * torch.exp(-beta_d_clamped)
             Bc_with_residual = Bc + residual_term
             Bc_final = torch.clamp(Bc_with_residual, 0.01, 1.0)
         else:
-            # 没有残差项，直接裁剪
+            # no residual term, clip directly
             Bc_final = torch.clamp(Bc, 0.01, 1.0)
         
         return Bc_final
@@ -342,26 +342,26 @@ class ImprovedAttenuateNetV3(nn.Module):
         self.scale = scale
         self.do_sigmoid = do_sigmoid
         
-        # 基本衰减参数
+        # basic attenuation parameters
         self.attenuation_conv_params = nn.Parameter(torch.rand(3, 1, 1, 1))
         if init_vals:
             self.attenuation_conv_params = nn.Parameter(torch.Tensor([1.1, 0.95, 0.95]).reshape(3, 1, 1, 1))
             
-        # 波长物理先验
+        # wavelength physical prior
         self.channel_weights = nn.Parameter(torch.Tensor([1.0, 0.8, 0.6]).reshape(3, 1, 1))
         
-        # 边缘感知处理
+        # edge-aware processing
         self.edge_modulation = nn.Sequential(
             nn.Conv2d(2, 8, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(8, 3, kernel_size=1),  # 输出3通道对应RGB
+            nn.Conv2d(8, 3, kernel_size=1),  # output 3 channels for RGB
             nn.Sigmoid()
         )
         
         self.relu = nn.ReLU()
         
     def forward(self, depth, rgb=None):
-        # 使用Sobel滤波器替代diff()
+        # use Sobel filter instead of diff()
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         pad = nn.ReplicationPad2d(1)
@@ -370,63 +370,59 @@ class ImprovedAttenuateNetV3(nn.Module):
         grad_y = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_y))
         combined_gradient = torch.cat([grad_x, grad_y], dim=1)
         
-        # 生成边缘感知调制因子
+        # generate edge-aware modulation factor
         edge_factor = self.edge_modulation(combined_gradient)  # [B,3,H,W-1]
-        # 调整尺寸以匹配原始深度图
+        # resize to match original depth map
         edge_factor = torch.nn.functional.interpolate(
             edge_factor, size=(depth.shape[2], depth.shape[3]), mode='bilinear', align_corners=False
         )
         
-        # 基本衰减系数计算
+        # basic attenuation coefficient calculation
         if self.do_sigmoid:
             beta_base = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.attenuation_conv_params))
         else:
             beta_base = torch.nn.functional.conv2d(depth, self.attenuation_conv_params)
         
         if rgb is not None:
-            # 应用水体类型特定参数 - 避免原地操作
+            # apply water type specific parameters - avoid in-place operation
             modified_beta = torch.zeros_like(beta_base)
             for i in range(3):
                 modified_beta[:,i:i+1,:,:] = beta_base[:,i:i+1,:,:] * type_specific_params[:,i:i+1,:,:]
             beta_base = modified_beta
         
-        # 应用通道特定权重（波长物理先验）
+        # apply channel specific weights (wavelength physical prior)
         weighted_beta = torch.zeros_like(beta_base)
         for i in range(3):
             weighted_beta[:,i:i+1,:,:] = beta_base[:,i:i+1,:,:] * self.channel_weights[i:i+1]
         
-        # 应用边缘感知调制 - 在边缘处调整衰减强度
-        # 边缘处增强通透性（减少衰减）
+        # apply edge-aware modulation - adjust attenuation intensity at edges
+        # enhance transparency at edges (reduce attenuation)
         modulated_beta = weighted_beta * (1.0 - 0.2 * edge_factor)
         beta_d_conv = torch.clamp(modulated_beta, 0.0)
         
-        # 计算衰减图
+        # calculate attenuation map
         attenuation_map = torch.exp(-beta_d_conv)
         
         return attenuation_map
 
 class RGBGuidedAttenuateNet(nn.Module):
-    """
-    RGB引导的衰减优化模型
-    - 利用RGB边缘信息增强深度边缘感知
-    - 实现通道特定的衰减系数学习
-    - 设计波长相关的光谱衰减模型
-    """
+    
+    # RGB-guided attenuation optimization model
     def __init__(self, scale: float = 1.0, do_sigmoid: bool = False, init_vals: bool = True):
         super().__init__()
         
         self.scale = scale
         self.do_sigmoid = do_sigmoid
         
-        # 基本衰减参数 - 针对RGB三个通道
+        # basic attenuation parameters for RGB three channels
         self.attenuation_conv_params = nn.Parameter(torch.rand(3, 1, 1, 1))
         if init_vals:
             self.attenuation_conv_params = nn.Parameter(torch.Tensor([1.1, 0.95, 0.95]).reshape(3, 1, 1, 1))
             
-        # 波长物理先验 - 根据物理规律不同波长的吸收率不同
+        # wavelength physical prior - different absorption rates for different wavelengths
         self.channel_weights = nn.Parameter(torch.Tensor([1.0, 0.8, 0.6]).reshape(3, 1, 1))
         
-        # RGB特征提取网络
+        # RGB feature extraction network
         self.rgb_feature_extractor = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -434,13 +430,13 @@ class RGBGuidedAttenuateNet(nn.Module):
             nn.ReLU()
         )
         
-        # 深度特征提取网络
+        # depth feature extraction network
         self.depth_feature_extractor = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             nn.ReLU()
         )
         
-        # 特征融合网络 - 处理RGB+深度情况下的特征
+        # feature fusion network - handles RGB+depth features
         self.fusion_network = nn.Sequential(
             nn.Conv2d(16, 8, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -448,7 +444,7 @@ class RGBGuidedAttenuateNet(nn.Module):
             nn.Sigmoid()
         )
         
-        # 特征融合网络 - 仅处理深度情况下的特征 (combined_gradient[2] + depth_features[8] = 10通道)
+        # feature fusion network - depth-only features (combined_gradient[2] + depth_features[8] = 10 channels)
         self.depth_only_fusion_network = nn.Sequential(
             nn.Conv2d(10, 8, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -456,41 +452,41 @@ class RGBGuidedAttenuateNet(nn.Module):
             nn.Sigmoid()
         )
         
-        # 边缘感知处理 - Sobel滤波器
+        # edge-aware processing - Sobel filters
         self.edge_detection = nn.Sequential(
-            nn.Conv2d(4, 16, kernel_size=3, padding=1),  # RGB + 深度 = 4通道
+            nn.Conv2d(4, 16, kernel_size=3, padding=1),  # RGB + depth = 4 channels
             nn.ReLU(),
             nn.Conv2d(16, 8, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(8, 3, kernel_size=1),  # 3通道对应RGB
+            nn.Conv2d(8, 3, kernel_size=1),  # 3 channels for RGB
             nn.Sigmoid()
         )
         
-        # 水体类型分类器 - 用于选择适当的衰减参数
+        # water type classifier - selects appropriate attenuation parameters
         self.water_type_classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Linear(3, 8),
             nn.ReLU(),
-            nn.Linear(8, 3),  # 3种水体类型
+            nn.Linear(8, 3),  # 3 water types
             nn.Softmax(dim=1)
         )
         
-        # 水体类型衰减参数 - 3种水体类型，每种有3个RGB通道参数
+        # water type attenuation parameters - 3 water types, each with 3 RGB channel parameters
         self.water_type_params = nn.Parameter(torch.Tensor([
-            [1.2, 1.0, 0.9],  # 清澈水体
-            [1.5, 1.3, 1.1],  # 浑浊水体
-            [1.8, 1.6, 1.4]   # 高浑浊水体
+            [1.2, 1.0, 0.9],  # clear water
+            [1.5, 1.3, 1.1],  # turbid water
+            [1.8, 1.6, 1.4]   # highly turbid water
         ]).reshape(3, 3))
         
         self.relu = nn.ReLU()
         
-        print(f"初始化RGB引导衰减网络，scale: {self.scale}, sigmoid: {self.do_sigmoid}")
+        print(f"Initialized RGB-guided attenuation network, scale: {self.scale}, sigmoid: {self.do_sigmoid}")
         
     def forward(self, depth, rgb=None):
         if rgb is None:
-            # 如果没有提供RGB信息，退化为ImprovedAttenuateNetV3
-            # 使用Sobel滤波器提取深度边缘
+            # if no RGB info provided, fallback to ImprovedAttenuateNetV3
+            # use Sobel filter to extract depth edges
             sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
             sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
             pad = nn.ReplicationPad2d(1)
@@ -499,70 +495,66 @@ class RGBGuidedAttenuateNet(nn.Module):
             grad_y = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_y))
             combined_gradient = torch.cat([grad_x, grad_y], dim=1)
             
-            # 提取深度特征
+            # extract depth features
             depth_features = self.depth_feature_extractor(depth)
             
-            # 生成边缘感知调制因子（没有RGB时简化版本）
+            # generate edge-aware modulation factor (simplified version without RGB)
             edge_factor = torch.cat([combined_gradient, depth_features], dim=1)
             edge_factor = self.depth_only_fusion_network(edge_factor)
         else:
-            # 提取RGB特征
+            # extract RGB features
             rgb_features = self.rgb_feature_extractor(rgb)
             
-            # 提取深度特征
+            # extract depth features
             depth_features = self.depth_feature_extractor(depth)
             
-            # 融合RGB和深度特征
+            # fuse RGB and depth features
             fused_features = torch.cat([rgb_features, depth_features], dim=1)
             
-            # 生成边缘感知调制因子
+            # generate edge-aware modulation factor
             combined_input = torch.cat([rgb, depth], dim=1)  # [B,4,H,W]
             edge_factor = self.edge_detection(combined_input)
             
-            # 水体类型分类
+            # water type classification
             avg_rgb = torch.mean(rgb, dim=[2, 3])  # [B,3]
             water_type_weights = self.water_type_classifier(rgb)  # [B,3]
             
-            # 根据水体类型选择衰减参数
-            # [B,3,1,1] = 矩阵乘法([B,3] @ [3,3])并重新形状
+            # select attenuation parameters based on water type
+            # [B,3,1,1] = matrix multiplication ([B,3] @ [3,3]) and reshape
             type_specific_params = torch.matmul(water_type_weights, self.water_type_params).unsqueeze(-1).unsqueeze(-1)
         
-        # 基本衰减系数计算
+        # basic attenuation coefficient calculation
         if self.do_sigmoid:
             beta_base = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.attenuation_conv_params))
         else:
             beta_base = torch.nn.functional.conv2d(depth, self.attenuation_conv_params)
             
-        # 如果有RGB信息，应用水体类型特定参数
+        # if RGB info available, apply water type specific parameters
         if rgb is not None:
-            # 应用水体类型特定参数 - 避免原地操作
+            # apply water type specific parameters - avoid in-place operation
             modified_beta = torch.zeros_like(beta_base)
             for i in range(3):
                 modified_beta[:,i:i+1,:,:] = beta_base[:,i:i+1,:,:] * type_specific_params[:,i:i+1,:,:]
             beta_base = modified_beta
         
-        # 应用通道特定权重（波长物理先验）
+        # apply channel specific weights (wavelength physical prior)
         weighted_beta = torch.zeros_like(beta_base)
         for i in range(3):
             weighted_beta[:,i:i+1,:,:] = beta_base[:,i:i+1,:,:] * self.channel_weights[i:i+1]
         
-        # 应用边缘感知调制 - 在边缘处调整衰减强度
-        # 边缘处增强通透性（减少衰减）
+        # apply edge-aware modulation - adjust attenuation intensity at edges
+        # enhance transparency at edges (reduce attenuation)
         modulated_beta = weighted_beta * (1.0 - 0.2 * edge_factor)
         beta_d_conv = torch.clamp(modulated_beta, 0.0)
         
-        # 计算衰减图
+        # calculate attenuation map
         attenuation_map = torch.exp(-beta_d_conv)
         
         return attenuation_map
 
 class MultiscaleBackscatterNet(nn.Module):
-    """
-    多尺度深度感知散射模型
-    - 引入特征金字塔网络处理不同尺度的深度信息
-    - 设计注意力模块突出关键深度特征
-    - 加入深度置信度评估机制
-    """
+    
+    # Multiscale depth-aware backscatter model
     def __init__(self, use_residual: bool = True, scale: float = 1.0, do_sigmoid: bool = False, init_vals: bool = False):
         super().__init__()
         
@@ -570,53 +562,53 @@ class MultiscaleBackscatterNet(nn.Module):
         self.do_sigmoid = do_sigmoid
         self.use_residual = use_residual
         
-        # 基本参数
+        # basic parameters
         if init_vals:
             self.backscatter_conv_params = nn.Parameter(torch.Tensor([0.95, 0.8, 0.8]).reshape(3, 1, 1, 1))
         else:
             self.backscatter_conv_params = nn.Parameter(torch.rand(3, 1, 1, 1))
         
-        # B_inf参数 - 无限远处的背景颜色
+        # B_inf parameters - background color at infinite distance
         self.B_inf = nn.Parameter(torch.Tensor([0.5, 0.5, 0.5]).reshape(3, 1, 1))
         
         if use_residual:
             self.residual_conv_params = nn.Parameter(torch.rand(3, 1, 1, 1))
             self.J_prime = nn.Parameter(torch.rand(3, 1, 1))
         
-        # 多尺度深度特征提取 - 特征金字塔网络
-        # 下采样路径
+        # multiscale depth feature extraction - feature pyramid network
+        # downsampling path
         self.down_sample1 = nn.MaxPool2d(kernel_size=2)
         self.down_sample2 = nn.MaxPool2d(kernel_size=2)
         
-        # 不同尺度的特征提取
-        self.conv_scale1 = nn.Sequential(  # 原始尺度
+        # feature extraction at different scales
+        self.conv_scale1 = nn.Sequential(  # original scale
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             nn.ReLU()
         )
         
-        self.conv_scale2 = nn.Sequential(  # 1/2尺度
+        self.conv_scale2 = nn.Sequential(  # 1/2 scale
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             nn.ReLU()
         )
         
-        self.conv_scale3 = nn.Sequential(  # 1/4尺度
+        self.conv_scale3 = nn.Sequential(  # 1/4 scale
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             nn.ReLU()
         )
         
-        # 上采样路径
+        # upsampling path
         self.up_sample1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         self.up_sample2 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=False)
         
-        # 多尺度特征融合
+        # multiscale feature fusion
         self.feature_fusion = nn.Sequential(
-            nn.Conv2d(24, 16, kernel_size=3, padding=1),  # 8+8+8=24通道
+            nn.Conv2d(24, 16, kernel_size=3, padding=1),  # 8+8+8=24 channels
             nn.ReLU(),
             nn.Conv2d(16, 8, kernel_size=3, padding=1),
             nn.ReLU()
         )
         
-        # 注意力模块 - 通道注意力
+        # attention module - channel attention
         self.channel_attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(8, 4, kernel_size=1),
@@ -625,13 +617,13 @@ class MultiscaleBackscatterNet(nn.Module):
             nn.Sigmoid()
         )
         
-        # 注意力模块 - 空间注意力
+        # attention module - spatial attention
         self.spatial_attention = nn.Sequential(
             nn.Conv2d(8, 1, kernel_size=7, padding=3),
             nn.Sigmoid()
         )
         
-        # 深度置信度评估
+        # depth confidence estimation
         self.confidence_estimation = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -639,7 +631,7 @@ class MultiscaleBackscatterNet(nn.Module):
             nn.Sigmoid()
         )
         
-        # 边缘感知处理
+        # edge-aware processing
         self.edge_process = nn.Sequential(
             nn.Conv2d(2, 8, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -650,29 +642,29 @@ class MultiscaleBackscatterNet(nn.Module):
         self.relu = nn.ReLU()
         self.l2 = torch.nn.MSELoss()
         
-        print(f"初始化多尺度散射网络，scale: {self.scale}, sigmoid: {self.do_sigmoid}, residual: {self.use_residual}")
+        print(f"Initialized multiscale backscatter network, scale: {self.scale}, sigmoid: {self.do_sigmoid}, residual: {self.use_residual}")
         
     def forward(self, depth, rgb=None):
         batch_size = depth.size(0)
         
-        # 深度置信度评估
+        # depth confidence estimation
         confidence_map = self.confidence_estimation(depth)
         
-        # 多尺度特征提取
-        # 原始尺度
+        # multiscale feature extraction
+        # original scale
         features_scale1 = self.conv_scale1(depth)
         
-        # 1/2尺度
+        # 1/2 scale
         depth_down1 = self.down_sample1(depth)
         features_scale2 = self.conv_scale2(depth_down1)
         features_scale2_up = self.up_sample1(features_scale2)
         
-        # 1/4尺度
+        # 1/4 scale
         depth_down2 = self.down_sample2(depth_down1)
         features_scale3 = self.conv_scale3(depth_down2)
         features_scale3_up = self.up_sample2(features_scale3)
         
-        # 特征融合 - 确保所有特征尺寸一致
+        # feature fusion - ensure all features have consistent dimensions
         if features_scale1.size() != features_scale2_up.size():
             features_scale2_up = torch.nn.functional.interpolate(
                 features_scale2_up, size=(features_scale1.size(2), features_scale1.size(3)), 
@@ -685,21 +677,21 @@ class MultiscaleBackscatterNet(nn.Module):
                 mode='bilinear', align_corners=False
             )
         
-        # 合并多尺度特征
+        # merge multiscale features
         fused_features = torch.cat([features_scale1, features_scale2_up, features_scale3_up], dim=1)
         fused_features = self.feature_fusion(fused_features)
         
-        # 通道注意力机制
+        # channel attention mechanism
         channel_weights = self.channel_attention(fused_features)
-        # 修改：避免原地操作
+        # modification: avoid in-place operation
         attended_features = fused_features * channel_weights
         
-        # 空间注意力机制
+        # spatial attention mechanism
         spatial_weights = self.spatial_attention(attended_features)
-        # 修改：避免原地操作
+        # modification: avoid in-place operation
         attended_features_spatial = attended_features * spatial_weights
         
-        # 使用Sobel滤波器计算深度边缘
+        # use Sobel filter to calculate depth edges
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).cuda()
         pad = nn.ReplicationPad2d(1)
@@ -708,64 +700,64 @@ class MultiscaleBackscatterNet(nn.Module):
         grad_y = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_y))
         combined_gradient = torch.cat([grad_x, grad_y], dim=1)
         
-        # 边缘感知处理
+        # edge-aware processing
         edge_aware_factor = self.edge_process(combined_gradient)
         
-        # 基础散射系数计算 - 引入多尺度特征
+        # basic scattering coefficient calculation - introduce multiscale features
         if self.do_sigmoid:
             beta_b_conv = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.backscatter_conv_params))
         else:
             beta_b_conv = torch.nn.functional.conv2d(depth, self.backscatter_conv_params)
             
-        # 应用深度置信度 - 低置信度区域减少依赖
+        # apply depth confidence - reduce dependency in low confidence regions
         beta_with_conf = beta_b_conv * confidence_map
         
-        # 应用边缘感知因子 - 边缘处减少散射
+        # apply edge-aware factor - reduce scattering at edges
         beta_with_edge = beta_with_conf * (1.0 - 0.2 * edge_aware_factor)
         
-        # 应用多尺度特征增强
-        # 转换特征形状以适应操作
+        # apply multiscale feature enhancement
+        # convert feature shape for operation
         feature_weight = torch.mean(attended_features_spatial, dim=1, keepdim=True)
         feature_weight_resized = torch.nn.functional.interpolate(
             feature_weight, size=(beta_with_edge.size(2), beta_with_edge.size(3)), 
             mode='bilinear', align_corners=False
         )
         
-        # 特征权重归一化 - 避免原地操作
+        # feature weight normalization - avoid in-place operation
         feature_min = feature_weight_resized.min()
         feature_max = feature_weight_resized.max()
         normalized_feature_weight = (feature_weight_resized - feature_min) / (feature_max - feature_min + 1e-8)
         
-        # 应用特征增强 - 特征丰富区域增强散射效果 - 避免原地操作
+        # apply feature enhancement - enhance scattering in feature-rich regions - avoid in-place operation
         enhanced_beta = beta_with_edge * (1.0 + 0.1 * normalized_feature_weight)
-        beta_b_conv_clamped = torch.clamp(enhanced_beta, 0.001, None)  # 设置最小值
+        beta_b_conv_clamped = torch.clamp(enhanced_beta, 0.001, None)  # set minimum value
         
-        # 计算散射
+        # calculate scattering
         Bc = torch.sigmoid(self.B_inf) * (1 - torch.exp(-beta_b_conv_clamped))
         
-        # 残差项处理
+        # residual term processing
         if self.use_residual:
             if self.do_sigmoid:
                 beta_d_conv = torch.nn.functional.conv2d(depth, self.scale * torch.sigmoid(self.residual_conv_params))
             else:
                 beta_d_conv = torch.nn.functional.conv2d(depth, self.residual_conv_params)
             
-            # 应用置信度和边缘信息 - 避免原地操作
+            # apply confidence and edge info - avoid in-place operation
             modified_beta_d = beta_d_conv * confidence_map * (1.0 - 0.1 * edge_aware_factor)
             beta_d_clamped = torch.clamp(modified_beta_d, 0.0)
             
-            # 应用残差 - 避免原地操作
+            # apply residual - avoid in-place operation
             residual_term = torch.sigmoid(self.J_prime) * torch.exp(-beta_d_clamped)
             Bc_with_residual = Bc + residual_term
             Bc_final = torch.clamp(Bc_with_residual, 0.01, 1.0)
         else:
-            # 没有残差项，直接裁剪
+            # no residual term, clip directly
             Bc_final = torch.clamp(Bc, 0.01, 1.0)
         
         return Bc_final
     
     def forward_rgb(self, rgb):
-        """从RGB图像估计大气光B_inf"""
+        """Estimate atmospheric light B_inf from RGB image"""
         from render_uw import estimate_atmospheric_light
         
         atmospheric_colors = []

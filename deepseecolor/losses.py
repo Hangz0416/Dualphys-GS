@@ -302,8 +302,8 @@ def mixture_of_laplacians_loss(x):
 
 class EdgeAwareBackscatterLoss(nn.Module):
     """
-    边缘感知散射损失函数
-    在深度边缘处对散射进行更严格的约束，期望边缘处的散射强度更低。
+    Edge-aware backscatter loss function
+    Applies stricter constraints on scattering at depth edges, expecting lower scattering intensity at edges.
     """
     def __init__(self, edge_weight=0.5):
         super().__init__()
@@ -312,7 +312,7 @@ class EdgeAwareBackscatterLoss(nn.Module):
         self.edge_weight = edge_weight
         
     def forward(self, backscatter, depth):
-        # 计算深度边缘
+        # calculate depth edges
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).to(depth.device)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).to(depth.device)
         pad = nn.ReplicationPad2d(1)
@@ -320,11 +320,11 @@ class EdgeAwareBackscatterLoss(nn.Module):
         grad_x = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_x))
         grad_y = torch.abs(torch.nn.functional.conv2d(depth_padded, sobel_y))
         
-        # 深度边缘处应有较低的散射
+        # depth edges should have lower scattering
         edge_magnitude = torch.sqrt(grad_x**2 + grad_y**2)
         edge_mask = edge_magnitude > edge_magnitude.mean()
         
-        # 边缘处散射应较低，非边缘处正常
+        # edges should have lower scattering, non-edges remain normal
         edge_loss = self.l1(backscatter * edge_mask, torch.zeros_like(backscatter * edge_mask))
         normal_loss = self.smooth_l1(backscatter, torch.clamp(backscatter, 0, 1))
         
@@ -332,8 +332,8 @@ class EdgeAwareBackscatterLoss(nn.Module):
 
 class MultiscaleFeatureLoss(nn.Module):
     """
-    多尺度特征损失函数
-    在不同尺度下比较输出与目标，捕捉全局和局部信息。
+    Multiscale feature loss function
+    Compares output with target at different scales, capturing global and local information.
     """
     def __init__(self):
         super().__init__()
@@ -341,10 +341,10 @@ class MultiscaleFeatureLoss(nn.Module):
         self.l1 = nn.L1Loss()
         
     def forward(self, output, target, depth=None):
-        # 基础损失
+        # base loss
         base_loss = self.l1(output, target)
         
-        # 多尺度处理
+        # multiscale processing
         scales = [1, 2, 4]
         ms_loss = 0.0
         
@@ -359,31 +359,31 @@ class MultiscaleFeatureLoss(nn.Module):
 
 class PhysicalPriorLoss(nn.Module):
     """
-    物理先验约束损失
-    应用水下物理规律：不同波长光在水中的衰减速率不同，
-    通常红光衰减最快，蓝光衰减最慢。
+    Physical prior constraint loss
+    Applies underwater physics laws: different wavelengths attenuate at different rates in water,
+    typically red light attenuates fastest, blue light attenuates slowest.
     """
     def __init__(self, channel_weights=None):
         super().__init__()
         self.mse = nn.MSELoss()
-        # 波长约束权重：红色衰减最强，蓝色最弱
+        # wavelength constraint weights: red attenuates strongest, blue weakest
         if channel_weights is None:
             self.channel_weights = torch.tensor([1.0, 0.8, 0.6])  # RGB
         else:
             self.channel_weights = channel_weights
             
     def forward(self, attenuation):
-        # 获取每个通道的平均衰减系数
+        # get average attenuation coefficient for each channel
         mean_attenuation = torch.mean(attenuation, dim=[2, 3])  # [B,3]
         
         batch_size = attenuation.shape[0]
         channel_weights = self.channel_weights.to(attenuation.device).expand(batch_size, -1)
         
-        # 约束不同通道衰减系数的相对大小关系
-        # 红色通道应有最低值(最强衰减)，蓝色通道最高值(最弱衰减)
+        # constrain relative magnitude relationships between channel attenuation coefficients
+        # red channel should have lowest value (strongest attenuation), blue channel highest (weakest)
         loss = 0.0
         
-        # 确保红色衰减 < 绿色衰减 < 蓝色衰减
+        # ensure red attenuation < green attenuation < blue attenuation
         red_green_constraint = torch.relu(mean_attenuation[:, 0] - mean_attenuation[:, 1])
         green_blue_constraint = torch.relu(mean_attenuation[:, 1] - mean_attenuation[:, 2])
         
@@ -393,76 +393,76 @@ class PhysicalPriorLoss(nn.Module):
 
 class WaterTypeAdaptiveLoss(nn.Module):
     """
-    水体类型自适应损失
-    根据估计的水体清澈度自动调整散射和衰减损失的权重。
-    清澈水体更看重衰减，浑浊水体更看重散射。
+    Water type adaptive loss
+    Automatically adjusts weights of scattering and attenuation losses based on estimated water clarity.
+    Clear water focuses more on attenuation, turbid water focuses more on scattering.
     """
     def __init__(self):
         super().__init__()
         self.mse = nn.MSELoss()
         
     def forward(self, rgb, backscatter, attenuation):
-        # 估计水体类型
+        # estimate water type
         avg_color = torch.mean(rgb, dim=[2, 3])  # [B,3]
         
-        # 蓝绿比例作为水体清澈度指标
+        # blue-green ratio as water clarity indicator
         water_clarity = avg_color[:, 2] / (avg_color[:, 1] + 1e-6)
         
-        # 根据水体类型计算权重系数（维持为标量）
+        # calculate weight coefficient based on water type (keep as scalar)
         bs_weight = torch.sigmoid(5.0 - 10.0 * water_clarity).mean()
         
-        # 清澈水体：更看重衰减损失；浑浊水体：更看重散射损失
+        # clear water: focus more on attenuation loss; turbid water: focus more on scattering loss
         backscatter_constraint = torch.mean(backscatter)
         attenuation_constraint = torch.mean(1.0 - attenuation)
         
-        # 使用标量权重确保形状兼容
+        # use scalar weights to ensure shape compatibility
         loss = bs_weight * backscatter_constraint + (1.0 - bs_weight) * attenuation_constraint
         
         return loss
 
 class BackscatterAttenuationConsistencyLoss(nn.Module):
     """
-    散射-衰减一致性损失
-    强制散射与衰减表现出相互一致的关系，
-    同时考虑它们与深度的物理关系。
+    Backscatter-attenuation consistency loss
+    Enforces mutually consistent relationship between scattering and attenuation,
+    while considering their physical relationship with depth.
     """
     def __init__(self):
         super().__init__()
         self.mse = nn.MSELoss()
         
     def forward(self, backscatter, attenuation, depth):
-        # 散射应随深度增加而增加
-        # 衰减应随深度增加而减小
+        # scattering should increase with depth
+        # attenuation should decrease with depth
         
-        # 计算散射与深度的相关性约束
+        # calculate scattering-depth correlation constraint
         bs_depth_correlation = torch.mean(backscatter * depth)
         
-        # 计算衰减与深度的负相关性约束
+        # calculate attenuation-depth negative correlation constraint
         at_depth_correlation = -torch.mean(attenuation * depth)
         
-        # 散射与衰减的互补约束
+        # complementary constraint between scattering and attenuation
         bs_at_consistency = self.mse(backscatter + attenuation, torch.ones_like(backscatter))
         
         return bs_depth_correlation + at_depth_correlation + 0.1 * bs_at_consistency
 
 class ImprovedEdgeSmoothLoss(nn.Module):
     """
-    改进的边缘平滑度损失
-    根据RGB图像的边缘信息和深度边缘，
-    对结果进行自适应的平滑约束。
+    Improved edge smoothness loss
+    Applies adaptive smoothing constraints on results based on 
+    edge information from RGB images and depth edges.
     """
     def __init__(self):
         super().__init__()
         self.l1 = nn.L1Loss()
         
     def forward(self, output, depth, rgb=None):
-        # 计算深度梯度
+        # calculate depth gradients
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).to(output.device)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).reshape(1, 1, 3, 3).to(output.device)
         
-        # 提取RGB边缘（如果有）
+        # extract RGB edges (if available)
         if rgb is not None:
-            # 转为灰度图
+            # convert to grayscale
             gray = 0.299 * rgb[:, 0:1] + 0.587 * rgb[:, 1:2] + 0.114 * rgb[:, 2:3]
             
             pad = nn.ReplicationPad2d(1)
@@ -471,21 +471,21 @@ class ImprovedEdgeSmoothLoss(nn.Module):
             gray_grad_y = torch.abs(torch.nn.functional.conv2d(gray_padded, sobel_y))
             rgb_edge = torch.sqrt(gray_grad_x**2 + gray_grad_y**2)
             
-            # RGB边缘权重
+            # RGB edge weights
             rgb_weight = torch.exp(-10.0 * rgb_edge)
         else:
             rgb_weight = 1.0
             
-        # 将输出转换为灰度图
+        # convert output to grayscale
         output_gray = 0.299 * output[:, 0:1] + 0.587 * output[:, 1:2] + 0.114 * output[:, 2:3]
         
-        # 计算输出梯度
+        # calculate output gradients
         pad = nn.ReplicationPad2d(1)
         output_gray_padded = pad(output_gray)
         output_grad_x = torch.nn.functional.conv2d(output_gray_padded, sobel_x)
         output_grad_y = torch.nn.functional.conv2d(output_gray_padded, sobel_y)
         
-        # 只在非RGB边缘处强制平滑
+        # enforce smoothness only at non-RGB edges
         smooth_loss = (rgb_weight * (torch.abs(output_grad_x) + torch.abs(output_grad_y))).mean()
         
         return smooth_loss

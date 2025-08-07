@@ -176,28 +176,28 @@ class OptimizationParams(ParamGroup):
         self.use_at_v3 = True                # use attenuate net v3 implx (simplest)
         self.disable_attenuation = False      # simplified model that only accounts for backscatter
         
-        # 水下成像模型改进选项
-        self.use_rgb_guided_at = True        # 使用RGB引导的衰减优化模型，从ImprovedAttenuateNetV3升级
-        self.use_multiscale_bs = True        # 使用多尺度散射模型，从ImprovedBackscatterNetV2升级
+        # underwater imaging model improvements
+        self.use_rgb_guided_at = True        # use RGB-guided attenuation model
+        self.use_multiscale_bs = True        # use multiscale backscatter model
         
-        # 改进的损失函数选项
-        self.use_edge_aware_bs_loss = True  # 使用边缘感知散射损失
-        self.edge_aware_bs_lambda = 0.5      # 边缘感知散射损失权重
+        # improved loss function options
+        self.use_edge_aware_bs_loss = True  # use edge-aware backscatter loss
+        self.edge_aware_bs_lambda = 0.5      # edge-aware backscatter loss weight
         
-        self.use_multiscale_feature_loss = True  # 使用多尺度特征损失
-        self.multiscale_feature_lambda = 0.5      # 多尺度特征损失权重
+        self.use_multiscale_feature_loss = True  # use multiscale feature loss
+        self.multiscale_feature_lambda = 0.5      # multiscale feature loss weight
         
-        self.use_physical_prior_loss = False  # 使用物理先验约束损失
-        self.physical_prior_lambda = 0.2      # 物理先验约束损失权重
+        self.use_physical_prior_loss = False  # use physical prior constraint loss
+        self.physical_prior_lambda = 0.2      # physical prior constraint loss weight
         
-        self.use_water_type_loss = True      # 使用水体类型自适应损失
-        self.water_type_lambda = 0.3          # 水体类型自适应损失权重
+        self.use_water_type_loss = True      # use water type adaptive loss
+        self.water_type_lambda = 0.3          # water type adaptive loss weight
         
-        self.use_bs_at_consistency_loss = True  # 使用散射-衰减一致性损失
-        self.bs_at_consistency_lambda = 0.1      # 散射-衰减一致性损失权重
+        self.use_bs_at_consistency_loss = True  # use backscatter-attenuation consistency loss
+        self.bs_at_consistency_lambda = 0.1      # backscatter-attenuation consistency loss weight
         
-        self.use_improved_edge_smooth = True     # 使用改进的边缘平滑度损失
-        self.improved_edge_smooth_lambda = 0.1    # 改进的边缘平滑度损失权重
+        self.use_improved_edge_smooth = True     # use improved edge smoothness loss
+        self.improved_edge_smooth_lambda = 0.1    # improved edge smoothness loss weight
         
         self.seathru_from_iter = 9_000_000
         self.update_bs_at_interval = 100      # every num gs updates, update the bs and at models
@@ -206,9 +206,9 @@ class OptimizationParams(ParamGroup):
         self.scale_grad_threshold = 1.0
         self.do_z_score = False               # z threshold direct image to +/- 5 stdevs
 
-        self.use_attention_bs = True  # 使用注意力增强的散射模型
-        self.use_multiscale_at = True  # 使用多尺度特征的衰减模型
-        self.use_physical_water = True  # 使用物理水体分类模型
+        self.use_attention_bs = True  # use attention-enhanced backscatter model
+        self.use_multiscale_at = True  # use multiscale feature attenuation model
+        self.use_physical_water = True  # use physical water classification model
 
         super().__init__(parser, "Optimization Parameters")
 

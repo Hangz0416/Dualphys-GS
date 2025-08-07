@@ -84,18 +84,18 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
         print(f"boundaries for camera/pcd: {scene_bounds_xxyyzz}")
         model_params.scene_bounds_xxyyzz = scene_bounds_xxyyzz
 
-    # 从路径中检测场景类型
+    
     scene_name = None
-    # 如果提供了场景名称参数，直接使用
+    # use specified scene name if provided
     if hasattr(model_params, 'scene_name') and model_params.scene_name:
         scene_name = model_params.scene_name
-        print(f"使用指定的场景类型: {scene_name}")
+        print(f"Using specified scene type: {scene_name}")
     else:
-        # 尝试从路径或图像自动检测
+        # try auto-detection from path or images
         try:
             scene_name = detect_scene_from_training_images(model_params.source_path)
         except ImportError:
-            # 降级到简单路径检测
+            # fallback to simple path detection
             source_path = str(model_params.source_path).lower()
             if 'curasao' in source_path:
                 scene_name = 'Curasao'
@@ -108,10 +108,6 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
             elif 'saltpond' in source_path:
                 scene_name = 'Saltpond'
     
-    if scene_name:
-        print(f"检测到场景类型: {scene_name}，将应用特定水下成像参数")
-    else:
-        print("未检测到特定场景类型，将使用默认水下参数")
 
     first_iter = 0
     tb_writer = prepare_output_and_logger(model_params)
@@ -124,7 +120,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
     bs_model = None
     at_model = None
     if opt_params.do_seathru:
-        # 选择初始化哪种散射模型
+        # select which backscatter model to initialize
         if opt_params.use_multiscale_bs:
             bs_model = MultiscaleBackscatterNet(use_residual=opt_params.use_bs_residual, scale=opt_params.bs_scale, do_sigmoid=opt_params.do_sigmoid_bs).cuda()
             print(f"Using MultiscaleBackscatterNet")
@@ -132,7 +128,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
             bs_model = BackscatterNetV2(use_residual=opt_params.use_bs_residual, scale=opt_params.bs_scale, do_sigmoid=opt_params.do_sigmoid_bs).cuda()
             print(f"Using BackscatterNetV2")
 
-        # 选择初始化哪种衰减模型
+        # select which attenuation model to initialize
         if opt_params.use_rgb_guided_at:
             at_model = RGBGuidedAttenuateNet(scale=opt_params.at_scale, do_sigmoid=opt_params.do_sigmoid_at, init_vals=not opt_params.do_sigmoid_at).cuda()
             print(f"Using RGBGuidedAttenuateNet")
@@ -146,26 +142,25 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
             at_model = AttenuateNet(scale=opt_params.at_scale, do_sigmoid=opt_params.do_sigmoid_at).cuda()
             print(f"Using AttenuateNet")
             
-        # 根据场景类型设置初始化参数
+        # set initialization parameters based on scene type
         if scene_name and 'render_uw' in sys.modules:
             from render_uw import SCENE_PARAMS
             if scene_name in SCENE_PARAMS:
                 params = SCENE_PARAMS[scene_name]
-                # 设置散射模型参数
+                # set backscatter model parameters
                 if hasattr(bs_model, 'backscatter_conv_params') and hasattr(bs_model, 'B_inf'):
                     bs_model.backscatter_conv_params.data = torch.tensor(params['beta_b']).reshape(3, 1, 1, 1).cuda()
                     bs_model.B_inf.data = torch.tensor(params['b_inf']).reshape(3, 1, 1).cuda()
-                    print(f"使用{scene_name}场景特定散射参数")
                     
-                # 设置衰减模型参数
+                    
+                # set attenuation model parameters
                 if hasattr(at_model, 'attenuation_conv_params'):
                     at_model.attenuation_conv_params.data = torch.tensor(params['beta_d']).reshape(3, 1, 1, 1).cuda()
-                    print(f"使用{scene_name}场景特定衰减参数")
                     
-                # 为不同水质场景调整学习率
+                    
+                # adjust learning rate for different water types
                 if scene_name in ['Curasao', 'JapaneseGradens-RedSea'] and opt_params.bs_at_lr > 0.0001:
-                    adjusted_lr = opt_params.bs_at_lr * 0.5  # 清澈水体使用较小的学习率
-                    print(f"对清澈水体场景{scene_name}调整学习率: {opt_params.bs_at_lr} -> {adjusted_lr}")
+                    adjusted_lr = opt_params.bs_at_lr * 0.5  # use smaller lr for clear water
                     opt_params.bs_at_lr = adjusted_lr
 
         bs_optimizer = torch.optim.Adam(bs_model.parameters(), lr=opt_params.bs_at_lr)
@@ -181,7 +176,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
     dsc_at_criterion = AttenuateLoss().cuda()
     dcp_criterion = DarkChannelPriorLossV3().cuda()
     
-    # 初始化新的损失函数
+    # initialize additional loss functions
     edge_aware_bs_criterion = EdgeAwareBackscatterLoss(edge_weight=opt_params.edge_aware_bs_lambda).cuda()
     multiscale_feature_criterion = MultiscaleFeatureLoss().cuda()
     physical_prior_criterion = PhysicalPriorLoss().cuda()
@@ -241,7 +236,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
     opacity_prior_loss = torch.Tensor([0.0]).squeeze().cuda()
     dl1 = torch.Tensor([0.0]).squeeze().cuda()
     
-    # 新的损失变量
+    # additional loss variables
     edge_aware_bs_loss = torch.Tensor([0.0]).squeeze().cuda()
     multiscale_feature_loss = torch.Tensor([0.0]).squeeze().cuda()
     physical_prior_loss = torch.Tensor([0.0]).squeeze().cuda()
@@ -343,7 +338,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
             image_batch = torch.unsqueeze(image, dim=0)
             depth_image_batch = torch.unsqueeze(depth_image, dim=0)
             
-            # 传递RGB信息给模型
+            # pass RGB info to model
             attenuation_map_batch = at_model(depth_image_batch, image_batch)
             # attenuation_map_batch = at_model(depth_image_batch)
             backscatter_batch = bs_model(depth_image_batch, image_batch)
@@ -415,7 +410,7 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
         if opt_params.use_depth_l1_loss:
             gt_depth_image = viewpoint_cam.original_depth_image.cuda()
             depth_l1_loss = l1_loss(depth_image, gt_depth_image)
-            loss += 0.1 * depth_l1_loss
+            loss += 0.01 * depth_l1_loss
 
         # depth smooth loss
         if opt_params.use_depth_smooth_loss:
@@ -499,37 +494,37 @@ def training(model_params, opt_params, pipe_params, testing_iterations, saving_i
                 dsc_at_loss = dsc_at_criterion(direct_reversefromgt_detached, J_through_atmodel)
                 loss += opt_params.dsc_at_lambda * dsc_at_loss
 
-        # 边缘感知散射损失
+        # edge-aware backscatter loss
         if opt_params.use_edge_aware_bs_loss and opt_params.do_seathru and iteration > opt_params.seathru_from_iter:
             depth_image_batch = torch.unsqueeze(depth_image, dim=0)
             edge_aware_bs_loss = edge_aware_bs_criterion(backscatter_batch, depth_image_batch)
             loss += opt_params.edge_aware_bs_lambda * edge_aware_bs_loss
             
-        # 多尺度特征损失
+        # multiscale feature loss
         if opt_params.use_multiscale_feature_loss:
             gt_rgb_batch = torch.unsqueeze(gt_image, dim=0)
             underwater_image_batch = torch.unsqueeze(image, dim=0)
             multiscale_feature_loss = multiscale_feature_criterion(underwater_image_batch, gt_rgb_batch, torch.unsqueeze(depth_image, dim=0))
             loss += opt_params.multiscale_feature_lambda * multiscale_feature_loss
             
-        # 物理先验约束损失
+        # physical prior constraint loss
         if opt_params.use_physical_prior_loss and opt_params.do_seathru and iteration > opt_params.seathru_from_iter:
             physical_prior_loss = physical_prior_criterion(attenuation_map_batch)
             loss += opt_params.physical_prior_lambda * physical_prior_loss
             
-        # 水体类型自适应损失
+        # water type adaptive loss
         if opt_params.use_water_type_loss and opt_params.do_seathru and iteration > opt_params.seathru_from_iter:
             image_batch = torch.unsqueeze(image, dim=0)
             water_type_loss = water_type_criterion(image_batch, backscatter_batch, attenuation_map_batch)
             loss += opt_params.water_type_lambda * water_type_loss
             
-        # 散射-衰减一致性损失
+        # backscatter-attenuation consistency loss
         if opt_params.use_bs_at_consistency_loss and opt_params.do_seathru and iteration > opt_params.seathru_from_iter:
             depth_image_batch = torch.unsqueeze(depth_image, dim=0)
             bs_at_consistency_loss = bs_at_consistency_criterion(backscatter_batch, attenuation_map_batch, depth_image_batch)
             loss += opt_params.bs_at_consistency_lambda * bs_at_consistency_loss
             
-        # 改进的边缘平滑度损失
+        # improved edge smoothness loss
         if opt_params.use_improved_edge_smooth and opt_params.do_seathru and iteration > opt_params.seathru_from_iter:
             gt_rgb_batch = torch.unsqueeze(gt_image, dim=0)
             depth_image_batch = torch.unsqueeze(depth_image, dim=0)
@@ -861,7 +856,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
         if opacity_prior_loss is not None:
             tb_writer.add_scalar('train_losses/opacity_prior_loss', opacity_prior_loss.item(), iteration)
             
-        # 记录新增的损失函数
+        # log additional loss functions
         if edge_aware_bs_loss is not None:
             tb_writer.add_scalar('train_losses/edge_aware_bs_loss', edge_aware_bs_loss.item(), iteration)
         if multiscale_feature_loss is not None:
@@ -1174,7 +1169,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--exp", type=str, default = "test")
     parser.add_argument("--seed", type=int, default = -1)
-    parser.add_argument("--scene_name", type=str, default=None, help="指定场景类型: Curasao, IUI3-RedSea, JapaneseGradens-RedSea, Panama")
+    parser.add_argument("--scene_name", type=str, default=None, help="Scene type: Curasao, IUI3-RedSea, JapaneseGradens-RedSea, Panama")
     args = parser.parse_args(sys.argv[1:])
     args.test_iterations.insert(0, 1)
     args.save_iterations.append(args.iterations)
@@ -1197,8 +1192,8 @@ if __name__ == "__main__":
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
 
     # Print out all the parameters in the run
-    for k,v in vars(args).items():
-        print(f"{k}: {v}")
+    # for k,v in vars(args).items():
+    #     print(f"{k}: {v}")
 
     training(
         lp.extract(args),

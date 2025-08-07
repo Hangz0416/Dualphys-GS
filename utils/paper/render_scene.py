@@ -121,12 +121,12 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, render_b
             image_batch = torch.unsqueeze(rendered_image, dim=0)
             depth_image_batch = torch.unsqueeze(depth_image, dim=0)
 
-            # estimate attenuation - 传递RGB信息给模型
+            # estimate attenuation - pass RGB info to model
             attenuation_map = at_model(depth_image_batch, image_batch)
             direct = image_batch * attenuation_map
             attenuation_map_normalized = attenuation_map / torch.max(attenuation_map)
 
-            # estimate backscatter - 传递RGB信息给模型
+            # estimate backscatter - pass RGB info to model
             backscatter = bs_model(depth_image_batch, image_batch)
             backscatter_normalized = backscatter / torch.max(backscatter)
 
@@ -168,34 +168,34 @@ def render_sets(
             assert os.path.exists(attenuation_model_path)
             assert os.path.exists(backscatter_model_path)
             
-            # 尝试使用改进的模型
+            # try improved model
             try:
                 at_model = RGBGuidedAttenuateNet(scale=5.0)
                 at_model.load_state_dict(torch.load(attenuation_model_path))
-                print("使用RGB引导的衰减模型")
+                print("Using RGB-guided attenuation model")
             except:
                 try:
                     at_model = ImprovedAttenuateNetV3(scale=5.0)
                     at_model.load_state_dict(torch.load(attenuation_model_path))
-                    print("使用改进的衰减模型v3")
+                    print("Using improved attenuation model v3")
                 except:
                     at_model = AttenuateNetV3()
                     at_model.load_state_dict(torch.load(attenuation_model_path))
-                    print("使用标准衰减模型")
+                    print("Using standard attenuation model")
                     
             try:
                 bs_model = MultiscaleBackscatterNet(use_residual=False, scale=5.0)
                 bs_model.load_state_dict(torch.load(backscatter_model_path))
-                print("使用多尺度散射模型")
+                print("Using multiscale backscatter model")
             except:
                 try:
                     bs_model = ImprovedBackscatterNetV2(use_residual=False, scale=5.0)
                     bs_model.load_state_dict(torch.load(backscatter_model_path))
-                    print("使用改进的散射模型v2")
+                    print("Using improved backscatter model v2")
                 except:
                     bs_model = BackscatterNetV2()
                     bs_model.load_state_dict(torch.load(backscatter_model_path))
-                    print("使用标准散射模型")
+                    print("Using standard backscatter model")
                     
             at_model.cuda()
             bs_model.cuda()
