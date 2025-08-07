@@ -15,7 +15,7 @@ In 3D reconstruction of underwater scenes, traditional methods based on atmosphe
 
 ## Pipeline
 
-<img src="[/pipeline.png" alt="pipeline]" style="zoom:100%;" />
+<img alt="pipeline](https://github.com/Hangz0416/Dualphys-GS/blob/master/assets/pipeline.png)" style="zoom:100%;" />
 
 ## Installation
 
