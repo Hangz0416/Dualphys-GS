@@ -1,7 +1,7 @@
 # DualPhys-GS: Dual Physically-Guided 3D Gaussian Splatting for Underwater Scene Reconstruction
 
-<div align="center">
-**Jiachen Li, Guangzhi Han, Jin Wan, Yuan Gao, Delong Han**
+<div align="left">
+Jiachen Li, Guangzhi Han, Jin Wan, Yuan Gao, Delong Han
 
 </div>
 
