@@ -95,7 +95,7 @@ SeaThru-NeRF uses `OPENCV` camera models, but our rasterizer requires `SIMPLE_PI
 
 ## Quick Start
 
-The codebase is built upon the original Yang Seasplat [implementation](https://github.com/dxyang/seasplat/). 
+
 
 ### Basic Training
 
@@ -122,3 +122,5 @@ python train.py \
     --use_edge_aware_bs_loss \
     --iterations 30000
 ```
+## Acknowledgments
+The codebase is built upon the original Yang Seasplat [implementation](https://github.com/dxyang/seasplat/). We sincerely thank the authors of [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting), [Seathru-NeRF](https://sea-thru-nerf.github.io/), Seasplat [implementation](https://github.com/dxyang/seasplat/), whose codes and datasets were used in our work.
