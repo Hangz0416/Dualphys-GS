@@ -139,8 +139,7 @@ The training time for each dataset is approximately one and a half hours. If you
    └── models  # pre-trained models
    ```
 ```bash
-python metrics.py \
-    -m /path/to/your/models \
+python metrics.py -m /path/to/your/models \
 ```
 
 ## Acknowledgments
