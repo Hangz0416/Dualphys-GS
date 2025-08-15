@@ -22,6 +22,7 @@ In 3D reconstruction of underwater scenes, traditional methods based on atmosphe
 ### Prerequisites
 
 - Ubuntu 22.04
+- 4090 (24GB VRAM)
 - CUDA 11.8
 - Python 3.10
 
@@ -126,5 +127,21 @@ python train.py \
     --use_edge_aware_bs_loss \
     --iterations 30000
 ```
+
+## Quick Evaluation
+
+The training time for each dataset is approximately one and a half hours. If you want to evaluate our [pre-trained JapaneseGradens-RedSea models](https://huggingface.co/harvey0416/pre_trained/blob/main/models.zip), you will have to download the Seathru-NeRF datasets. Please rename the Original images folder under JapaneseGradens-RedSea to images, then place the pre-trained models under JapaneseGradens-RedSea:
+  ```
+   JapaneseGradens-RedSea/
+   ├── iamges/           # Original images
+   │   ├── MTN_1090.png
+   │   └── ...
+   └── models  # pre-trained models
+   ```
+```bash
+python metrics.py \
+    -m /path/to/your/models \
+```
+
 ## Acknowledgments
 The codebase is built upon the original Yang Seasplat [implementation](https://github.com/dxyang/seasplat/). We sincerely thank the authors of [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting), [Seathru-NeRF](https://sea-thru-nerf.github.io/), [Seasplat](https://github.com/dxyang/seasplat/), whose codes and datasets were used in our work.
