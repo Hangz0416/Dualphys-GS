@@ -57,8 +57,8 @@ pip install ./submodules/simple-knn
 
 | Dataset                | Download                                                                                        |
 | :--------------------- | ----------------------------------------------------------------------------------------------- |
-| **SaltPond**     | [Google Drive](https://drive.google.com/file/d/1gItZkfEFmXZzIRh5b6wXeWD6GappX-QN/view?usp=sharing) |
-| **SeaThru-NeRF** | [Google Drive](https://drive.google.com/uc?export=download&id=1RzojBFvBWjUUhuJb95xJPSNP3nJwZWaT)   |
+| **SaltPond (1.3GB)**     | [Google Drive](https://drive.google.com/file/d/1gItZkfEFmXZzIRh5b6wXeWD6GappX-QN/view?usp=sharing) |
+| **SeaThru-NeRF (594MB)** | [Google Drive](https://drive.google.com/uc?export=download&id=1RzojBFvBWjUUhuJb95xJPSNP3nJwZWaT)   |
 
 ### Data Structure
 
@@ -130,7 +130,7 @@ python train.py \
 
 ## Quick Evaluation
 
-The training time for each dataset is approximately one and a half hours. If you want to evaluate our [pre-trained JapaneseGradens-RedSea models](https://huggingface.co/harvey0416/pre_trained/blob/main/models.zip), you will have to download the Seathru-NeRF datasets. Please rename the Original images folder under JapaneseGradens-RedSea to images, then place the pre-trained models under JapaneseGradens-RedSea:
+The training time for each dataset is approximately one and a half hours. If you want to evaluate our [pre-trained JapaneseGradens-RedSea models](https://huggingface.co/harvey0416/pre_trained/blob/main/models.zip) (2.1GB), you will have to download the Seathru-NeRF datasets. Please rename the Original images folder under JapaneseGradens-RedSea to images, then place the pre-trained models under JapaneseGradens-RedSea:
   ```
    JapaneseGradens-RedSea/
    ├── iamges/           # Original images
